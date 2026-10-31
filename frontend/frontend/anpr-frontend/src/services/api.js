@@ -1,9 +1,13 @@
 // Dynamic Backend URL resolution (Google Colab, Localhost, or Cloud)
 export const getApiUrl = () => {
   if (typeof window !== "undefined") {
-    const saved = localStorage.getItem("ANPR_BACKEND_URL");
+    let saved = localStorage.getItem("ANPR_BACKEND_URL");
     if (saved && saved.trim()) {
-      return saved.trim().replace(/\/+$/, "");
+      saved = saved.trim().replace(/\/+$/, "");
+      if (!saved.startsWith("http://") && !saved.startsWith("https://")) {
+        saved = "https://" + saved;
+      }
+      return saved;
     }
   }
 
@@ -15,7 +19,6 @@ export const getApiUrl = () => {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
     if (host !== "localhost" && host !== "127.0.0.1") {
-      // Return empty string by default so it attempts same-origin unless overridden by user
       return "";
     }
   }
@@ -26,22 +29,60 @@ export const getApiUrl = () => {
 export const setApiUrl = (url) => {
   if (typeof window === "undefined") return;
   if (url && url.trim()) {
-    localStorage.setItem("ANPR_BACKEND_URL", url.trim().replace(/\/+$/, ""));
+    let clean = url.trim().replace(/\/+$/, "");
+    if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+      clean = "https://" + clean;
+    }
+    if (
+      window.location.protocol === "https:" &&
+      clean.startsWith("http://") &&
+      !clean.includes("localhost") &&
+      !clean.includes("127.0.0.1")
+    ) {
+      clean = clean.replace("http://", "https://");
+    }
+    localStorage.setItem("ANPR_BACKEND_URL", clean);
   } else {
     localStorage.removeItem("ANPR_BACKEND_URL");
   }
 };
 
 export const checkBackendHealth = async (customUrl) => {
-  const base = (customUrl !== undefined ? customUrl : getApiUrl()).replace(/\/+$/, "");
-  if (!base && typeof window !== "undefined" && (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1")) {
-    return { ok: false, error: "No backend URL configured." };
+  let base = (customUrl !== undefined ? customUrl : getApiUrl()).trim().replace(/\/+$/, "");
+  if (base && !base.startsWith("http://") && !base.startsWith("https://")) {
+    base = "https://" + base;
   }
+  if (
+    typeof window !== "undefined" &&
+    window.location.protocol === "https:" &&
+    base.startsWith("http://") &&
+    !base.includes("localhost") &&
+    !base.includes("127.0.0.1")
+  ) {
+    base = base.replace("http://", "https://");
+  }
+
+  if (
+    !base &&
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
+  ) {
+    return { ok: false, error: "Please enter your Colab HTTPS URL." };
+  }
+
   const testUrl = base ? `${base}/health` : "/health";
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-    const res = await fetch(testUrl, { signal: controller.signal });
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(testUrl, {
+      signal: controller.signal,
+      mode: "cors",
+      headers: {
+        "bypass-tunnel-reminder": "true",
+        "ngrok-skip-browser-warning": "true",
+      },
+    });
     clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -49,7 +90,13 @@ export const checkBackendHealth = async (customUrl) => {
     }
     return { ok: false, status: res.status };
   } catch (err) {
-    return { ok: false, error: err.message };
+    if (err.name === "AbortError") {
+      return {
+        ok: false,
+        error: "Connection timed out (10s). The Colab notebook may still be loading YOLO/EasyOCR models.",
+      };
+    }
+    return { ok: false, error: err.message || "Network Error" };
   }
 };
 
@@ -59,11 +106,19 @@ const apiUrl = (path) => {
   return base ? `${base}${path}` : path;
 };
 
+// Default tunnel bypass headers
+const getHeaders = (extraHeaders = {}) => {
+  return {
+    "bypass-tunnel-reminder": "true",
+    "ngrok-skip-browser-warning": "true",
+    ...extraHeaders,
+  };
+};
+
 // For backward compatibility:
 export const API_URL = getApiUrl();
 
-// Helper to convert relative evidence paths (e.g., "evidence/plates/...")
-// into full backend URLs (e.g., "http://127.0.0.1:5000/evidence/plates/...")
+// Helper to convert relative evidence paths into full backend URLs
 export const getEvidenceImageUrl = (relativePath) => {
   if (!relativePath) return "";
   if (
@@ -85,9 +140,13 @@ export const getEvidenceImageUrl = (relativePath) => {
 const handleFetchError = (err) => {
   if (
     err.name === "TypeError" ||
-    (err.message && (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")))
+    (err.message &&
+      (err.message.includes("Failed to fetch") ||
+        err.message.includes("NetworkError")))
   ) {
-    throw new Error("Backend server is not reachable. Please connect your Colab backend or start Flask.");
+    throw new Error(
+      "Backend server is not reachable. Please connect your Colab backend or start Flask."
+    );
   }
   throw err;
 };
@@ -97,10 +156,18 @@ export const recognizePlate = async (imageFile, options = {}) => {
   const formData = new FormData();
   formData.append("image", imageFile);
 
-  if (options.latitude !== undefined && options.latitude !== null && options.latitude !== "") {
+  if (
+    options.latitude !== undefined &&
+    options.latitude !== null &&
+    options.latitude !== ""
+  ) {
     formData.append("latitude", options.latitude);
   }
-  if (options.longitude !== undefined && options.longitude !== null && options.longitude !== "") {
+  if (
+    options.longitude !== undefined &&
+    options.longitude !== null &&
+    options.longitude !== ""
+  ) {
     formData.append("longitude", options.longitude);
   }
   if (options.location) {
@@ -110,6 +177,7 @@ export const recognizePlate = async (imageFile, options = {}) => {
   try {
     const response = await fetch(apiUrl("/predict"), {
       method: "POST",
+      headers: getHeaders(),
       body: formData,
     });
 
@@ -134,7 +202,9 @@ export const recognizePlate = async (imageFile, options = {}) => {
 // 2. Detection History
 export const getHistory = async () => {
   try {
-    const response = await fetch(apiUrl("/history"));
+    const response = await fetch(apiUrl("/history"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -144,7 +214,10 @@ export const getHistory = async () => {
 
 export const clearHistory = async () => {
   try {
-    const response = await fetch(apiUrl("/history"), { method: "DELETE" });
+    const response = await fetch(apiUrl("/history"), {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -154,7 +227,10 @@ export const clearHistory = async () => {
 
 export const searchHistory = async (plate) => {
   try {
-    const response = await fetch(apiUrl(`/history/search?plate=${encodeURIComponent(plate)}`));
+    const response = await fetch(
+      apiUrl(`/history/search?plate=${encodeURIComponent(plate)}`),
+      { headers: getHeaders() }
+    );
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -164,7 +240,10 @@ export const searchHistory = async (plate) => {
 
 export const filterHistory = async (status) => {
   try {
-    const response = await fetch(apiUrl(`/history/filter?status=${encodeURIComponent(status)}`));
+    const response = await fetch(
+      apiUrl(`/history/filter?status=${encodeURIComponent(status)}`),
+      { headers: getHeaders() }
+    );
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -175,7 +254,9 @@ export const filterHistory = async (status) => {
 // 3. Overall Statistics
 export const getStats = async () => {
   try {
-    const response = await fetch(apiUrl("/stats"));
+    const response = await fetch(apiUrl("/stats"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -186,7 +267,9 @@ export const getStats = async () => {
 // 4. Analytics
 export const getDailyAnalytics = async () => {
   try {
-    const response = await fetch(apiUrl("/analytics/daily"));
+    const response = await fetch(apiUrl("/analytics/daily"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -196,7 +279,9 @@ export const getDailyAnalytics = async () => {
 
 export const getHourlyAnalytics = async () => {
   try {
-    const response = await fetch(apiUrl("/analytics/hourly"));
+    const response = await fetch(apiUrl("/analytics/hourly"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -206,7 +291,9 @@ export const getHourlyAnalytics = async () => {
 
 export const getRepeatedAnalytics = async () => {
   try {
-    const response = await fetch(apiUrl("/analytics/repeated"));
+    const response = await fetch(apiUrl("/analytics/repeated"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -216,7 +303,9 @@ export const getRepeatedAnalytics = async () => {
 
 export const getWatchlistAnalytics = async () => {
   try {
-    const response = await fetch(apiUrl("/analytics/watchlist"));
+    const response = await fetch(apiUrl("/analytics/watchlist"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -227,7 +316,9 @@ export const getWatchlistAnalytics = async () => {
 // 5. Watchlist Management
 export const getWatchlist = async () => {
   try {
-    const response = await fetch(apiUrl("/watchlist"));
+    const response = await fetch(apiUrl("/watchlist"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -235,11 +326,14 @@ export const getWatchlist = async () => {
   }
 };
 
-export const addToWatchlist = async (plate_number, reason = "Watchlist vehicle") => {
+export const addToWatchlist = async (
+  plate_number,
+  reason = "Watchlist vehicle"
+) => {
   try {
     const response = await fetch(apiUrl("/watchlist"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ plate_number, reason }),
     });
 
@@ -256,9 +350,13 @@ export const addToWatchlist = async (plate_number, reason = "Watchlist vehicle")
 
 export const deleteFromWatchlist = async (plate_number) => {
   try {
-    const response = await fetch(apiUrl(`/watchlist/${encodeURIComponent(plate_number)}`), {
-      method: "DELETE",
-    });
+    const response = await fetch(
+      apiUrl(`/watchlist/${encodeURIComponent(plate_number)}`),
+      {
+        method: "DELETE",
+        headers: getHeaders(),
+      }
+    );
 
     if (!response.ok) {
       const errorJson = await response.json().catch(() => ({}));
@@ -274,7 +372,9 @@ export const deleteFromWatchlist = async (plate_number) => {
 // 6. Vehicles / Owner Details Management
 export const getVehicles = async () => {
   try {
-    const response = await fetch(apiUrl("/vehicles"));
+    const response = await fetch(apiUrl("/vehicles"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -284,7 +384,10 @@ export const getVehicles = async () => {
 
 export const getVehicle = async (plate_number) => {
   try {
-    const response = await fetch(apiUrl(`/vehicles/${encodeURIComponent(plate_number)}`));
+    const response = await fetch(
+      apiUrl(`/vehicles/${encodeURIComponent(plate_number)}`),
+      { headers: getHeaders() }
+    );
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
@@ -297,7 +400,7 @@ export const addVehicle = async (vehicleData) => {
   try {
     const response = await fetch(apiUrl("/vehicles"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(vehicleData),
     });
 
@@ -314,9 +417,13 @@ export const addVehicle = async (vehicleData) => {
 
 export const deleteVehicle = async (plate_number) => {
   try {
-    const response = await fetch(apiUrl(`/vehicles/${encodeURIComponent(plate_number)}`), {
-      method: "DELETE",
-    });
+    const response = await fetch(
+      apiUrl(`/vehicles/${encodeURIComponent(plate_number)}`),
+      {
+        method: "DELETE",
+        headers: getHeaders(),
+      }
+    );
 
     if (!response.ok) {
       const errorJson = await response.json().catch(() => ({}));
@@ -332,7 +439,9 @@ export const deleteVehicle = async (plate_number) => {
 // 7. Map Detections
 export const getMapDetections = async () => {
   try {
-    const response = await fetch(apiUrl("/map/detections"));
+    const response = await fetch(apiUrl("/map/detections"), {
+      headers: getHeaders(),
+    });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {

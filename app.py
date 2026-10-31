@@ -27,7 +27,14 @@ from anpr_ocr_engine import (
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, bypass-tunnel-reminder, ngrok-skip-browser-warning"
+    return response
 
 DATABASE = os.path.join(BASE_DIR, "anpr_history.db")
 
