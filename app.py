@@ -23,12 +23,12 @@ from anpr_ocr_engine import (
 )
 
 # ==========================================
-# FLASK SETUP
+# BASE PATHS & FLASK SETUP
 # ==========================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 CORS(app)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "anpr_history.db")
 
 # Evidence folders
@@ -39,7 +39,7 @@ PLATES_DIR = os.path.join(EVIDENCE_DIR, "plates")
 os.makedirs(ORIGINAL_DIR, exist_ok=True)
 os.makedirs(PLATES_DIR, exist_ok=True)
 
-# Frontend build directory
+# Frontend React build directory
 FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "frontend", "anpr-frontend", "dist")
 
 
@@ -196,11 +196,11 @@ def init_database():
     print("Database initialized successfully!")
 
 
-# Initialize database automatically on startup
+# Auto-initialize database on import
 try:
     init_database()
-except Exception as _db_err:
-    print(f"Warning: could not auto-initialize DB on import: {_db_err}")
+except Exception as _e:
+    print(f"Database init notice: {_e}")
 
 
 # ==========================================
@@ -235,7 +235,7 @@ def save_plate_evidence(plate_image, filename, detection_time):
 def relative_evidence_path(path):
     if not path:
         return None
-    return os.path.relpath(path, ".").replace("\\", "/")
+    return os.path.relpath(path, BASE_DIR).replace("\\", "/")
 
 
 # ==========================================
@@ -385,7 +385,7 @@ print("EasyOCR loaded successfully!")
 
 
 # ==========================================
-# HOME & STATIC ASSETS
+# SERVE REACT FRONTEND UI
 # ==========================================
 @app.route("/")
 def home():
@@ -393,6 +393,7 @@ def home():
     if os.path.exists(index_file):
         return send_file(index_file)
     return "ANPR Backend is Running Successfully!"
+
 
 @app.route("/assets/<path:filename>")
 def serve_assets(filename):
@@ -1290,7 +1291,6 @@ def analytics_daily():
     return jsonify([dict(row) for row in rows])
 
 
-
 # ==========================================
 # ANALYTICS - REPEATED
 # ==========================================
@@ -1857,7 +1857,6 @@ def repeat_vehicles():
     return jsonify([dict(r) for r in rows])
 
 
-
 # ==========================================
 # LOCATION-SPECIFIC HOURLY ANALYTICS
 # ==========================================
@@ -2002,11 +2001,13 @@ def analytics_hourly_by_location():
 # ==========================================
 # CLIENT-SIDE SPA ROUTING / STATIC FALLBACK
 # ==========================================
-@app.route("/<path:filename>")
-def serve_client_route(filename):
-    file_path = os.path.join(FRONTEND_DIST, filename)
+@app.route("/<path:path>")
+def serve_client_route(path):
+    # Check if a static file exists in dist (e.g. favicon.svg, icons.svg)
+    file_path = os.path.join(FRONTEND_DIST, path)
     if os.path.exists(file_path) and os.path.isfile(file_path):
-        return send_from_directory(FRONTEND_DIST, filename)
+        return send_from_directory(FRONTEND_DIST, path)
+    # Otherwise fallback to index.html for React Router
     index_path = os.path.join(FRONTEND_DIST, "index.html")
     if os.path.exists(index_path):
         return send_file(index_path)
@@ -2014,140 +2015,16 @@ def serve_client_route(filename):
 
 
 # ==========================================
-# GRADIO & ASGI WRAPPER FOR HUGGING FACE SPACES (16 GB FREE TIER)
-# ==========================================
-try:
-    import gradio as gr
-    from fastapi import FastAPI
-    from a2wsgi import WSGIMiddleware
-    from fastapi.middleware.cors import CORSMiddleware
-
-    fastapi_app = FastAPI(title="Indian ANPR System API")
-    fastapi_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    # Mount Flask API endpoints
-    fastapi_app.mount("/api", WSGIMiddleware(app))
-    fastapi_app.mount("/evidence", WSGIMiddleware(app))
-
-    def gradio_scan_plate(input_img):
-        if input_img is None:
-            return None, "No image uploaded", "N/A", "N/A", "N/A"
-        
-        # Temporary save to pass through YOLO
-        import tempfile
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        temp_path = temp_file.name
-        temp_file.close()
-
-        cv2.imwrite(temp_path, cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR))
-
-        res = model(temp_path, conf=0.15, verbose=False)
-        annotated_img = input_img.copy()
-        plate_text = "No Plate Found"
-        conf_str = "0%"
-        state_str = "Unknown"
-        rto_str = "Unknown"
-
-        for r in res:
-            for box in r.boxes:
-                xyxy = box.xyxy[0].cpu().numpy().astype(int)
-                cv2.rectangle(annotated_img, (xyxy[0], xyxy[1]), (xyxy[2], xyxy[3]), (0, 255, 0), 3)
-                crop = input_img[xyxy[1]:xyxy[3], xyxy[0]:xyxy[2]]
-                if crop.size > 0:
-                    ocr_res = perform_enhanced_anpr_ocr(crop, reader)
-                    if ocr_res and ocr_res.get("text"):
-                        plate_text = ocr_res["text"]
-                        conf_str = f"{ocr_res.get('confidence', 0):.1f}%"
-                        st, rt = extract_state_and_rto(plate_text)
-                        state_str = st or "Unknown"
-                        rto_str = rt or "Unknown"
-                        break
-
-        try:
-            os.remove(temp_path)
-        except Exception:
-            pass
-
-        return annotated_img, plate_text, conf_str, state_str, rto_str
-
-    with gr.Blocks(title="Indian ANPR System") as demo:
-        gr.Markdown("# 🚗 Real-Time Indian Number Plate Recognition (ANPR)")
-        gr.Markdown("Deep Learning pipeline powered by **YOLOv8** + **Enhanced EasyOCR** running on **16 GB RAM Free Tier**.")
-
-        with gr.Tab("📷 Live Scanner"):
-            with gr.Row():
-                with gr.Column():
-                    img_input = gr.Image(type="numpy", label="Upload Vehicle Image")
-                    btn_scan = gr.Button("🔍 Detect Number Plate", variant="primary")
-                with gr.Column():
-                    img_output = gr.Image(label="Annotated Detection")
-                    txt_plate = gr.Textbox(label="Detected License Plate", scale=2)
-                    with gr.Row():
-                        txt_conf = gr.Textbox(label="OCR Confidence")
-                        txt_state = gr.Textbox(label="Indian State")
-                        txt_rto = gr.Textbox(label="RTO Location")
-
-            btn_scan.click(
-                fn=gradio_scan_plate,
-                inputs=[img_input],
-                outputs=[img_output, txt_plate, txt_conf, txt_state, txt_rto]
-            )
-
-        with gr.Tab("📊 Vehicle Database & Records"):
-            gr.Markdown("### SQLite Records Log")
-            btn_refresh = gr.Button("🔄 Refresh Database Records")
-            db_table = gr.Dataframe(
-                headers=["ID", "Timestamp", "Plate Number", "Confidence", "State", "Location"],
-                datatype=["number", "str", "str", "str", "str", "str"],
-                interactive=False
-            )
-            def load_records():
-                conn = get_connection()
-                rows = conn.execute("SELECT id, detection_time, plate_number, ocr_confidence, state_code, location FROM detections ORDER BY id DESC LIMIT 50").fetchall()
-                conn.close()
-                return [[r[0], r[1], r[2], f"{r[3]:.1f}%" if r[3] else "N/A", r[4], r[5]] for r in rows]
-
-            btn_refresh.click(fn=load_records, outputs=[db_table])
-
-        with gr.Tab("🌐 Web Dashboard & API Info"):
-            gr.Markdown("""
-            ### Complete Web App & REST API Access
-            - **REST API Base URL**: `/api/`
-            - **Predict Endpoint**: `POST /api/predict`
-            - **History Endpoint**: `GET /api/history`
-            - **Vehicle Search**: `GET /api/vehicles/search?q=<plate>`
-            - **Watchlist**: `GET /api/watchlist`
-            - **Export PDF Report**: `GET /api/report/pdf`
-            - **Export CSV**: `GET /api/report/csv`
-            """)
-
-    app_asgi = gr.mount_gradio_app(fastapi_app, demo, path="/")
-
-except Exception as _gradio_err:
-    print(f"Gradio initialization note: {_gradio_err}")
-    demo = None
-    app_asgi = None
-
-
-# ==========================================
 # START SERVER
 # ==========================================
 if __name__ == "__main__":
     init_database()
-    port = int(os.environ.get("PORT", 7860))
+    port = int(os.environ.get("PORT", 5000))
+    print(f"ANPR Full-Stack Web Server running on http://127.0.0.1:{port}")
 
-    if app_asgi is not None:
-        import uvicorn
-        uvicorn.run(app_asgi, host="0.0.0.0", port=port)
-    else:
-        app.run(
-            host="0.0.0.0",
-            port=port,
-            debug=False
-        )
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False,
+        threaded=True
+    )
