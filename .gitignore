@@ -1,0 +1,45 @@
+# Python virtual environment
+anpr_env/
+venv/
+env/
+.env
+.venv/
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Backup directories and files
+backup_before_guide_update/
+backup_before_guide_update_v2/
+*_backup*.py
+*_backup_*.py
+
+# Node dependencies
+node_modules/
+frontend/**/node_modules/
+.npm
+*.log
+
+# Large training datasets and prediction tests (keep weights only)
+dataset/
+images/
+output/
+result/
+runs/detect/predict*/
+runs/detect/runs/
+runs/detect/train-*
+runs/detect/train-2/
+runs/detect/train-3/
+runs/detect/train-4/
+runs/vehicle/
+runs/detect/train/*.png
+runs/detect/train/*.jpg
+runs/detect/train/*.csv
+runs/detect/train/weights/last.pt
+
+# System files
+.DS_Store
+Thumbs.db
