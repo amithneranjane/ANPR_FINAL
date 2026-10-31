@@ -46,8 +46,13 @@ PLATES_DIR = os.path.join(EVIDENCE_DIR, "plates")
 os.makedirs(ORIGINAL_DIR, exist_ok=True)
 os.makedirs(PLATES_DIR, exist_ok=True)
 
-# Frontend React build directory
-FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "frontend", "anpr-frontend", "dist")
+# Frontend React build directory (checks root dist or nested frontend dist)
+if os.path.exists(os.path.join(BASE_DIR, "dist", "index.html")):
+    FRONTEND_DIST = os.path.join(BASE_DIR, "dist")
+elif os.path.exists(os.path.join(BASE_DIR, "frontend", "frontend", "anpr-frontend", "dist", "index.html")):
+    FRONTEND_DIST = os.path.join(BASE_DIR, "frontend", "frontend", "anpr-frontend", "dist")
+else:
+    FRONTEND_DIST = os.path.join(BASE_DIR, "dist")
 
 
 # ==========================================
