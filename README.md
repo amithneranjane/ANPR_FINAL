@@ -1,10 +1,11 @@
 ---
-title: Automatic Number Plate Recognition (ANPR) System
+title: Indian ANPR System
 emoji: 🚗
 colorFrom: blue
 colorTo: indigo
-sdk: docker
-app_port: 7860
+sdk: gradio
+sdk_version: 5.20.0
+app_file: app.py
 pinned: false
 ---
 
@@ -15,10 +16,8 @@ A complete full-stack Automatic Number Plate Recognition system tailored for Ind
 ### Core Features
 - **YOLOv8 Detection**: Accurately locates vehicle license plates in various conditions.
 - **Enhanced EasyOCR**: Two-pass text recognition with heuristic character correction and Indian RTO state code validation.
-- **Evidence Management**: Stores original vehicle photos and high-resolution plate crops.
 - **Vehicle Analytics Dashboard**: Live detection feed, vehicle record search, toll gate logs, watchlist alerts, and PDF/CSV reporting.
 
 ### Tech Stack
-- **Backend**: Python Flask, Ultralytics YOLOv8, EasyOCR, OpenCV, SQLite
-- **Frontend**: React (Vite), React Router, Leaflet Maps, Modern Dashboard UI
-- **Deployment**: Docker container served via Gunicorn
+- **Backend & ML**: Python Flask, Ultralytics YOLOv8, EasyOCR, OpenCV, SQLite
+- **Hosting**: Hugging Face Spaces (Gradio SDK - 16 GB RAM Free Tier)

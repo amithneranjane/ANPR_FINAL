@@ -47,16 +47,16 @@ def main():
     repo_id = f"{username}/{space_name}"
     print(f"\n[+] Target Space: {repo_id}")
 
-    # Create the Space if it doesn't already exist
+    # Create the Space if it doesn't already exist (uses 100% FREE Gradio SDK with 16 GB RAM)
     try:
         api.create_repo(
             repo_id=repo_id,
             repo_type="space",
-            space_sdk="docker",
+            space_sdk="gradio",
             exist_ok=True,
             private=False
         )
-        print(f"[+] Space repository verified/created on Hugging Face!")
+        print(f"[+] Free 16 GB RAM Gradio Space verified/created on Hugging Face!")
     except Exception as e:
         print(f"[!] Note on repo creation: {e}")
 

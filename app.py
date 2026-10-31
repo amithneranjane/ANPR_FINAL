@@ -2014,14 +2014,140 @@ def serve_client_route(filename):
 
 
 # ==========================================
+# GRADIO & ASGI WRAPPER FOR HUGGING FACE SPACES (16 GB FREE TIER)
+# ==========================================
+try:
+    import gradio as gr
+    from fastapi import FastAPI
+    from a2wsgi import WSGIMiddleware
+    from fastapi.middleware.cors import CORSMiddleware
+
+    fastapi_app = FastAPI(title="Indian ANPR System API")
+    fastapi_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Mount Flask API endpoints
+    fastapi_app.mount("/api", WSGIMiddleware(app))
+    fastapi_app.mount("/evidence", WSGIMiddleware(app))
+
+    def gradio_scan_plate(input_img):
+        if input_img is None:
+            return None, "No image uploaded", "N/A", "N/A", "N/A"
+        
+        # Temporary save to pass through YOLO
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        temp_path = temp_file.name
+        temp_file.close()
+
+        cv2.imwrite(temp_path, cv2.cvtColor(input_img, cv2.COLOR_RGB2BGR))
+
+        res = model(temp_path, conf=0.15, verbose=False)
+        annotated_img = input_img.copy()
+        plate_text = "No Plate Found"
+        conf_str = "0%"
+        state_str = "Unknown"
+        rto_str = "Unknown"
+
+        for r in res:
+            for box in r.boxes:
+                xyxy = box.xyxy[0].cpu().numpy().astype(int)
+                cv2.rectangle(annotated_img, (xyxy[0], xyxy[1]), (xyxy[2], xyxy[3]), (0, 255, 0), 3)
+                crop = input_img[xyxy[1]:xyxy[3], xyxy[0]:xyxy[2]]
+                if crop.size > 0:
+                    ocr_res = perform_enhanced_anpr_ocr(crop, reader)
+                    if ocr_res and ocr_res.get("text"):
+                        plate_text = ocr_res["text"]
+                        conf_str = f"{ocr_res.get('confidence', 0):.1f}%"
+                        st, rt = extract_state_and_rto(plate_text)
+                        state_str = st or "Unknown"
+                        rto_str = rt or "Unknown"
+                        break
+
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+        return annotated_img, plate_text, conf_str, state_str, rto_str
+
+    with gr.Blocks(title="Indian ANPR System") as demo:
+        gr.Markdown("# 🚗 Real-Time Indian Number Plate Recognition (ANPR)")
+        gr.Markdown("Deep Learning pipeline powered by **YOLOv8** + **Enhanced EasyOCR** running on **16 GB RAM Free Tier**.")
+
+        with gr.Tab("📷 Live Scanner"):
+            with gr.Row():
+                with gr.Column():
+                    img_input = gr.Image(type="numpy", label="Upload Vehicle Image")
+                    btn_scan = gr.Button("🔍 Detect Number Plate", variant="primary")
+                with gr.Column():
+                    img_output = gr.Image(label="Annotated Detection")
+                    txt_plate = gr.Textbox(label="Detected License Plate", scale=2)
+                    with gr.Row():
+                        txt_conf = gr.Textbox(label="OCR Confidence")
+                        txt_state = gr.Textbox(label="Indian State")
+                        txt_rto = gr.Textbox(label="RTO Location")
+
+            btn_scan.click(
+                fn=gradio_scan_plate,
+                inputs=[img_input],
+                outputs=[img_output, txt_plate, txt_conf, txt_state, txt_rto]
+            )
+
+        with gr.Tab("📊 Vehicle Database & Records"):
+            gr.Markdown("### SQLite Records Log")
+            btn_refresh = gr.Button("🔄 Refresh Database Records")
+            db_table = gr.Dataframe(
+                headers=["ID", "Timestamp", "Plate Number", "Confidence", "State", "Location"],
+                datatype=["number", "str", "str", "str", "str", "str"],
+                interactive=False
+            )
+            def load_records():
+                conn = get_connection()
+                rows = conn.execute("SELECT id, detection_time, plate_number, ocr_confidence, state_code, location FROM detections ORDER BY id DESC LIMIT 50").fetchall()
+                conn.close()
+                return [[r[0], r[1], r[2], f"{r[3]:.1f}%" if r[3] else "N/A", r[4], r[5]] for r in rows]
+
+            btn_refresh.click(fn=load_records, outputs=[db_table])
+
+        with gr.Tab("🌐 Web Dashboard & API Info"):
+            gr.Markdown("""
+            ### Complete Web App & REST API Access
+            - **REST API Base URL**: `/api/`
+            - **Predict Endpoint**: `POST /api/predict`
+            - **History Endpoint**: `GET /api/history`
+            - **Vehicle Search**: `GET /api/vehicles/search?q=<plate>`
+            - **Watchlist**: `GET /api/watchlist`
+            - **Export PDF Report**: `GET /api/report/pdf`
+            - **Export CSV**: `GET /api/report/csv`
+            """)
+
+    app_asgi = gr.mount_gradio_app(fastapi_app, demo, path="/")
+
+except Exception as _gradio_err:
+    print(f"Gradio initialization note: {_gradio_err}")
+    demo = None
+    app_asgi = None
+
+
+# ==========================================
 # START SERVER
 # ==========================================
 if __name__ == "__main__":
     init_database()
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 7860))
 
-    app.run(
-        host="0.0.0.0",
-        port=port,
-        debug=False
-    )
+    if app_asgi is not None:
+        import uvicorn
+        uvicorn.run(app_asgi, host="0.0.0.0", port=port)
+    else:
+        app.run(
+            host="0.0.0.0",
+            port=port,
+            debug=False
+        )

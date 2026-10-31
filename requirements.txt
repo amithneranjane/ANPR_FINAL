@@ -1,9 +1,21 @@
+# Free Hugging Face Spaces (Gradio SDK) + FastAPI + WSGI Bridge
+gradio>=5.0.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+a2wsgi>=1.10.0
+starlette>=0.38.0
+
+# Backend Flask & Web
 Flask>=3.0.0
 flask-cors>=4.0.0
 gunicorn>=21.2.0
+
+# AI / ML Computer Vision Engine
 ultralytics>=8.0.0
 easyocr>=1.7.0
 opencv-python-headless>=4.8.0
 numpy>=1.24.0,<2.0.0
-reportlab>=4.0.0
 Pillow>=10.0.0
+
+# Reports
+reportlab>=4.0.0
