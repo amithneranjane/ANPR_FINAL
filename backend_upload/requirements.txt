@@ -1,0 +1,11 @@
+Flask
+flask-cors
+ultralytics
+easyocr
+opencv-python-headless
+numpy
+Pillow
+gunicorn
+
+python-dotenv
+supabase

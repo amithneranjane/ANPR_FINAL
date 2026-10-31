@@ -1,0 +1,74 @@
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!.env.example
+**/node_modules/
+**/dist/
+**/__pycache__/
+**/*.pyc
+**/anpr_env/
+**/venv/
+**/.venv/
+dataset/
+evidence/
+output/
+result/
+runs/
+**/runs/
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+*.pdf
+*.log
+backup_before_guide_update/
+backup_before_guide_update_v2/
+
+# Keep only the trained backend model
+!backend/runs/
+backend/runs/*
+!backend/runs/detect/
+backend/runs/detect/*
+!backend/runs/detect/train/
+backend/runs/detect/train/*
+!backend/runs/detect/train/weights/
+backend/runs/detect/train/weights/*
+!backend/runs/detect/train/weights/best.pt
+
+# Exclude the old nested Git backup
+**/.git-backup/
+
+# Exclude original nested backend; use backend_upload instead
+backend/
+
+# Never upload possible credentials or temporary files
+backend-env-backup.txt
+anpr-clean.patch
+*_backup*.py
+app_backup*.py
+scratch_*.py
+test*.py
+**/last.pt
+
+# Include the trained model in the clean backend copy
+!backend_upload/
+!backend_upload/runs/
+!backend_upload/runs/detect/
+!backend_upload/runs/detect/train/
+!backend_upload/runs/detect/train/weights/
+!backend_upload/runs/detect/train/weights/best.pt
+
+# Exclude generated YOLO runs except the trained model
+backend_upload/runs/*
+!backend_upload/runs/detect/
+backend_upload/runs/detect/*
+!backend_upload/runs/detect/train/
+backend_upload/runs/detect/train/*
+!backend_upload/runs/detect/train/weights/
+backend_upload/runs/detect/train/weights/*
+!backend_upload/runs/detect/train/weights/best.pt
+
+# Exclude ZIP backups
+**/*.zip
