@@ -403,6 +403,16 @@ def serve_assets(filename):
     return jsonify({"error": "Asset not found"}), 404
 
 
+@app.route("/health", methods=["GET"])
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status": "ok",
+        "service": "ANPR AI Backend",
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
+
 # ==========================================
 # PREDICT — uses improved anpr_ocr_engine
 # ==========================================
