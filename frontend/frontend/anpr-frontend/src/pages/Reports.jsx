@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CSV_REPORT_URL, PDF_REPORT_URL, getStats } from "../services/api";
+import { getCsvReportUrl, getPdfReportUrl, getStats } from "../services/api";
 
 function Reports() {
   const [totalRecords, setTotalRecords] = useState(0);
@@ -32,11 +32,11 @@ function Reports() {
   }, []);
 
   const handleDownloadCSV = () => {
-    window.open(CSV_REPORT_URL, "_blank");
+    window.open(getCsvReportUrl(), "_blank");
   };
 
   const handleDownloadPDF = () => {
-    window.open(PDF_REPORT_URL, "_blank");
+    window.open(getPdfReportUrl(), "_blank");
   };
 
   return (

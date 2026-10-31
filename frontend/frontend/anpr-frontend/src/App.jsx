@@ -10,10 +10,12 @@ import VehicleRecords from "./pages/VehicleRecords";
 import Analytics from "./pages/Analytics";
 import RecognitionResult from "./pages/RecognitionResult";
 import VehicleDetails from "./pages/VehicleDetails.jsx";
+import BackendConnector from "./components/BackendConnector";
 
 function App() {
   return (
     <BrowserRouter>
+      <BackendConnector />
       <Routes>
         <Route path="/watchlist" element={<Watchlist />} />
        

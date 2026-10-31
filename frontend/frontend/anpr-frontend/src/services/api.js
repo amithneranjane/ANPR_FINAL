@@ -1,6 +1,66 @@
-export const API_URL = import.meta.env.VITE_API_URL !== undefined
-  ? import.meta.env.VITE_API_URL
-  : "http://127.0.0.1:5000";
+// Dynamic Backend URL resolution (Google Colab, Localhost, or Cloud)
+export const getApiUrl = () => {
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("ANPR_BACKEND_URL");
+    if (saved && saved.trim()) {
+      return saved.trim().replace(/\/+$/, "");
+    }
+  }
+
+  if (import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== "") {
+    return import.meta.env.VITE_API_URL.replace(/\/+$/, "");
+  }
+
+  // If running in browser and hosted on an external domain like render.com:
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      // Return empty string by default so it attempts same-origin unless overridden by user
+      return "";
+    }
+  }
+
+  return "http://127.0.0.1:5000";
+};
+
+export const setApiUrl = (url) => {
+  if (typeof window === "undefined") return;
+  if (url && url.trim()) {
+    localStorage.setItem("ANPR_BACKEND_URL", url.trim().replace(/\/+$/, ""));
+  } else {
+    localStorage.removeItem("ANPR_BACKEND_URL");
+  }
+};
+
+export const checkBackendHealth = async (customUrl) => {
+  const base = (customUrl !== undefined ? customUrl : getApiUrl()).replace(/\/+$/, "");
+  if (!base && typeof window !== "undefined" && (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1")) {
+    return { ok: false, error: "No backend URL configured." };
+  }
+  const testUrl = base ? `${base}/health` : "/health";
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(testUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { ok: true, data };
+    }
+    return { ok: false, status: res.status };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+};
+
+// Helper for relative paths
+const apiUrl = (path) => {
+  const base = getApiUrl();
+  return base ? `${base}${path}` : path;
+};
+
+// For backward compatibility:
+export const API_URL = getApiUrl();
 
 // Helper to convert relative evidence paths (e.g., "evidence/plates/...")
 // into full backend URLs (e.g., "http://127.0.0.1:5000/evidence/plates/...")
@@ -17,7 +77,8 @@ export const getEvidenceImageUrl = (relativePath) => {
   const cleanPath = relativePath.startsWith("/")
     ? relativePath.slice(1)
     : relativePath;
-  return API_URL ? `${API_URL}/${cleanPath}` : `/${cleanPath}`;
+  const base = getApiUrl();
+  return base ? `${base}/${cleanPath}` : `/${cleanPath}`;
 };
 
 // Generic fetch wrapper with offline detection
@@ -26,7 +87,7 @@ const handleFetchError = (err) => {
     err.name === "TypeError" ||
     (err.message && (err.message.includes("Failed to fetch") || err.message.includes("NetworkError")))
   ) {
-    throw new Error("Backend server is not reachable. Please check if the API is running.");
+    throw new Error("Backend server is not reachable. Please connect your Colab backend or start Flask.");
   }
   throw err;
 };
@@ -47,7 +108,7 @@ export const recognizePlate = async (imageFile, options = {}) => {
   }
 
   try {
-    const response = await fetch(`${API_URL}/predict`, {
+    const response = await fetch(apiUrl("/predict"), {
       method: "POST",
       body: formData,
     });
@@ -73,7 +134,7 @@ export const recognizePlate = async (imageFile, options = {}) => {
 // 2. Detection History
 export const getHistory = async () => {
   try {
-    const response = await fetch(`${API_URL}/history`);
+    const response = await fetch(apiUrl("/history"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -83,7 +144,7 @@ export const getHistory = async () => {
 
 export const clearHistory = async () => {
   try {
-    const response = await fetch(`${API_URL}/history`, { method: "DELETE" });
+    const response = await fetch(apiUrl("/history"), { method: "DELETE" });
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -93,7 +154,7 @@ export const clearHistory = async () => {
 
 export const searchHistory = async (plate) => {
   try {
-    const response = await fetch(`${API_URL}/history/search?plate=${encodeURIComponent(plate)}`);
+    const response = await fetch(apiUrl(`/history/search?plate=${encodeURIComponent(plate)}`));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -103,7 +164,7 @@ export const searchHistory = async (plate) => {
 
 export const filterHistory = async (status) => {
   try {
-    const response = await fetch(`${API_URL}/history/filter?status=${encodeURIComponent(status)}`);
+    const response = await fetch(apiUrl(`/history/filter?status=${encodeURIComponent(status)}`));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -114,7 +175,7 @@ export const filterHistory = async (status) => {
 // 3. Overall Statistics
 export const getStats = async () => {
   try {
-    const response = await fetch(`${API_URL}/stats`);
+    const response = await fetch(apiUrl("/stats"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -125,7 +186,7 @@ export const getStats = async () => {
 // 4. Analytics
 export const getDailyAnalytics = async () => {
   try {
-    const response = await fetch(`${API_URL}/analytics/daily`);
+    const response = await fetch(apiUrl("/analytics/daily"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -135,7 +196,7 @@ export const getDailyAnalytics = async () => {
 
 export const getHourlyAnalytics = async () => {
   try {
-    const response = await fetch(`${API_URL}/analytics/hourly`);
+    const response = await fetch(apiUrl("/analytics/hourly"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -145,7 +206,7 @@ export const getHourlyAnalytics = async () => {
 
 export const getRepeatedAnalytics = async () => {
   try {
-    const response = await fetch(`${API_URL}/analytics/repeated`);
+    const response = await fetch(apiUrl("/analytics/repeated"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -155,7 +216,7 @@ export const getRepeatedAnalytics = async () => {
 
 export const getWatchlistAnalytics = async () => {
   try {
-    const response = await fetch(`${API_URL}/analytics/watchlist`);
+    const response = await fetch(apiUrl("/analytics/watchlist"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -166,7 +227,7 @@ export const getWatchlistAnalytics = async () => {
 // 5. Watchlist Management
 export const getWatchlist = async () => {
   try {
-    const response = await fetch(`${API_URL}/watchlist`);
+    const response = await fetch(apiUrl("/watchlist"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -176,7 +237,7 @@ export const getWatchlist = async () => {
 
 export const addToWatchlist = async (plate_number, reason = "Watchlist vehicle") => {
   try {
-    const response = await fetch(`${API_URL}/watchlist`, {
+    const response = await fetch(apiUrl("/watchlist"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ plate_number, reason }),
@@ -195,7 +256,7 @@ export const addToWatchlist = async (plate_number, reason = "Watchlist vehicle")
 
 export const deleteFromWatchlist = async (plate_number) => {
   try {
-    const response = await fetch(`${API_URL}/watchlist/${encodeURIComponent(plate_number)}`, {
+    const response = await fetch(apiUrl(`/watchlist/${encodeURIComponent(plate_number)}`), {
       method: "DELETE",
     });
 
@@ -213,7 +274,7 @@ export const deleteFromWatchlist = async (plate_number) => {
 // 6. Vehicles / Owner Details Management
 export const getVehicles = async () => {
   try {
-    const response = await fetch(`${API_URL}/vehicles`);
+    const response = await fetch(apiUrl("/vehicles"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -223,7 +284,7 @@ export const getVehicles = async () => {
 
 export const getVehicle = async (plate_number) => {
   try {
-    const response = await fetch(`${API_URL}/vehicles/${encodeURIComponent(plate_number)}`);
+    const response = await fetch(apiUrl(`/vehicles/${encodeURIComponent(plate_number)}`));
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
@@ -234,7 +295,7 @@ export const getVehicle = async (plate_number) => {
 
 export const addVehicle = async (vehicleData) => {
   try {
-    const response = await fetch(`${API_URL}/vehicles`, {
+    const response = await fetch(apiUrl("/vehicles"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(vehicleData),
@@ -253,7 +314,7 @@ export const addVehicle = async (vehicleData) => {
 
 export const deleteVehicle = async (plate_number) => {
   try {
-    const response = await fetch(`${API_URL}/vehicles/${encodeURIComponent(plate_number)}`, {
+    const response = await fetch(apiUrl(`/vehicles/${encodeURIComponent(plate_number)}`), {
       method: "DELETE",
     });
 
@@ -271,7 +332,7 @@ export const deleteVehicle = async (plate_number) => {
 // 7. Map Detections
 export const getMapDetections = async () => {
   try {
-    const response = await fetch(`${API_URL}/map/detections`);
+    const response = await fetch(apiUrl("/map/detections"));
     if (!response.ok) throw new Error(`HTTP error ${response.status}`);
     return await response.json();
   } catch (err) {
@@ -280,5 +341,7 @@ export const getMapDetections = async () => {
 };
 
 // 8. Report Endpoints
-export const CSV_REPORT_URL = `${API_URL}/report/csv`;
-export const PDF_REPORT_URL = `${API_URL}/report/pdf`;
+export const getCsvReportUrl = () => apiUrl("/report/csv");
+export const getPdfReportUrl = () => apiUrl("/report/pdf");
+export const CSV_REPORT_URL = "/report/csv";
+export const PDF_REPORT_URL = "/report/pdf";

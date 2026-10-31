@@ -43,3 +43,9 @@ runs/detect/train/weights/last.pt
 # System files
 .DS_Store
 Thumbs.db
+
+# Evidence files (runtime generated)
+evidence/original/*
+evidence/plates/*
+!evidence/original/.gitkeep
+!evidence/plates/.gitkeep
